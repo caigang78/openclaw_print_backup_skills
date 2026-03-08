@@ -36,8 +36,20 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.request import urlopen, Request
+import urllib.request
+from urllib.request import urlopen, Request, HTTPRedirectHandler, build_opener
 from urllib.error import URLError, HTTPError
+
+
+class _AuthRedirectHandler(HTTPRedirectHandler):
+    """Preserve Authorization header across cross-domain redirects."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if 'Authorization' in req.headers:
+            new_req.headers['Authorization'] = req.headers['Authorization']
+        return new_req
+
+
 
 # ── Config path ───────────────────────────────────────────────
 OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
@@ -54,7 +66,8 @@ TYPE_MAP = {
 
 
 def get_slack_config() -> dict:
-    """Read Slack credentials (botToken, defaultChannelId) from openclaw.json."""
+    """Read Slack credentials (botToken, defaultChannelId) from openclaw.json.
+    defaultChannelId fallback: openclaw.json → voice.json"""
     try:
         cfg = json.loads(OPENCLAW_CONFIG.read_text())
         slack = cfg.get("channels", {}).get("slack", {})
@@ -64,9 +77,16 @@ def get_slack_config() -> dict:
                 "channels.slack.botToken not configured. "
                 f"Please add a Slack Bot Token to {OPENCLAW_CONFIG}"
             )
+        default_channel_id = slack.get("defaultChannelId", "")
+        if not default_channel_id:
+            try:
+                voice_cfg = json.loads((Path.home() / ".openclaw" / "voice.json").read_text())
+                default_channel_id = voice_cfg.get("slack", {}).get("defaultChannelId", "")
+            except Exception:
+                pass
         return {
             "bot_token": token,
-            "default_channel_id": slack.get("defaultChannelId", ""),
+            "default_channel_id": default_channel_id,
         }
     except FileNotFoundError:
         raise RuntimeError(f"Config file not found: {OPENCLAW_CONFIG}")
@@ -136,9 +156,18 @@ def match_type(file_name: str, file_type: str) -> bool:
 
 
 def download_file(token: str, url: str, dest_path: Path) -> bool:
+    opener = build_opener(_AuthRedirectHandler())
     req = Request(url, headers={"Authorization": f"Bearer {token}"}, method="GET")
     try:
-        with urlopen(req, timeout=60) as resp:
+        with opener.open(req, timeout=60) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            if "text/html" in content_type:
+                print(
+                    f"ERROR: download failed {dest_path.name}: "
+                    f"Slack returned HTML — Bot Token is missing files:read scope",
+                    file=sys.stderr,
+                )
+                return False
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             with open(dest_path, "wb") as f:
                 shutil.copyfileobj(resp, f)

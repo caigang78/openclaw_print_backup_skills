@@ -1,5 +1,6 @@
 #!/bin/bash
 # feishu_backup.sh — Download files from a Feishu group chat and save to backup directory.
+# Files are organized under <backup_root>/YYYY-MM-DD/<type>/
 #
 # Basic usage (download latest file):
 #   ./feishu_backup.sh
@@ -15,10 +16,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOWNLOADER="$SCRIPT_DIR/../shared/feishu_downloader.py"
-BACKUP_DIR="${BACKUP_DIR:-$HOME/.openclaw/doc/backup}"
-
-mkdir -p "$BACKUP_DIR"
+BACKUP_ROOT="${BACKUP_ROOT:-$HOME/.openclaw/doc/backup}"
 
 source "$SCRIPT_DIR/../shared/feishu_args.sh"
+source "$SCRIPT_DIR/../shared/organize_backup.sh"
 
-python3 "$DOWNLOADER" "${FEISHU_ARGS[@]}" "$BACKUP_DIR"
+STAGING="${TMPDIR:-/tmp}/openclaw_backup_$$"
+mkdir -p "$STAGING"
+trap 'rm -rf "$STAGING"' EXIT
+
+while IFS= read -r line; do
+    if [[ "$line" == SUCCESS:* ]]; then
+        filepath="${line#SUCCESS: }"
+        final=$(organize_file_to_backup "$filepath" "$BACKUP_ROOT")
+        echo "SUCCESS: $final"
+    else
+        echo "$line"
+    fi
+done < <(python3 "$DOWNLOADER" "${FEISHU_ARGS[@]}" "$STAGING")

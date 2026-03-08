@@ -1,5 +1,6 @@
 #!/bin/bash
 # slack_fetch_and_print.sh — Download files from a Slack channel and send to printer.
+# Downloaded files are saved to <backup_root>/YYYY-MM-DD/<type>/ before printing.
 #
 # Basic usage (print latest file):
 #   PRINTER=MyPrinter ./slack_fetch_and_print.sh
@@ -14,10 +15,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOWNLOADER="$SCRIPT_DIR/../shared/slack_downloader.py"
-INBOUND_DIR="${INBOUND_DIR:-$HOME/.openclaw/media/inbound}"
+BACKUP_ROOT="${BACKUP_ROOT:-$HOME/.openclaw/doc/backup}"
 PRINTER="${PRINTER:-}"
-
-mkdir -p "$INBOUND_DIR"
 
 if [ -z "$PRINTER" ]; then
     echo "Error: set the PRINTER environment variable to specify a printer, e.g.: PRINTER=MyPrinter ./slack_fetch_and_print.sh"
@@ -26,16 +25,24 @@ if [ -z "$PRINTER" ]; then
 fi
 
 source "$SCRIPT_DIR/../shared/slack_args.sh"
+source "$SCRIPT_DIR/../shared/organize_backup.sh"
 
-# Download files and collect successful paths
+STAGING="${TMPDIR:-/tmp}/openclaw_backup_$$"
+mkdir -p "$STAGING"
+trap 'rm -rf "$STAGING"' EXIT
+
+# Download files and organize to backup directory
 DOWNLOADED=()
 while IFS= read -r line; do
-    echo "$line"
     if [[ "$line" == SUCCESS:* ]]; then
         filepath="${line#SUCCESS: }"
-        DOWNLOADED+=("$filepath")
+        final=$(organize_file_to_backup "$filepath" "$BACKUP_ROOT")
+        DOWNLOADED+=("$final")
+        echo "SUCCESS: $final"
+    else
+        echo "$line"
     fi
-done < <(python3 "$DOWNLOADER" "${SLACK_ARGS[@]}" "$INBOUND_DIR")
+done < <(python3 "$DOWNLOADER" "${SLACK_ARGS[@]}" "$STAGING")
 
 if [ ${#DOWNLOADED[@]} -eq 0 ]; then
     echo "Error: no files to print"
