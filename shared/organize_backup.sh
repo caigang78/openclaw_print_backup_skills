@@ -31,7 +31,7 @@ get_type_dir() {
 # Output: final file path (stdout)
 organize_file_to_backup() {
     local src="$1"
-    local backup_root="${2:-$HOME/.openclaw/doc/backup}"
+    local backup_root="${2:-${BACKUP_ROOT:-$HOME/openclaw-backup}}"
     local today
     today=$(date +%Y-%m-%d)
     local filename

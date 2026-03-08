@@ -15,8 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOWNLOADER="$SCRIPT_DIR/../shared/slack_downloader.py"
-BACKUP_ROOT="${BACKUP_ROOT:-$HOME/.openclaw/doc/backup}"
-
+source "$SCRIPT_DIR/../shared/resolve_backup_root.sh"
 source "$SCRIPT_DIR/../shared/slack_args.sh"
 source "$SCRIPT_DIR/../shared/organize_backup.sh"
 
